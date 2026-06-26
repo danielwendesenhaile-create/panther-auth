@@ -19,18 +19,32 @@ app.get('/auth', (req, res) => {
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     scope: 'repo,user',
-    response_type: 'code'
+    state: Math.random().toString(36).substring(7)
   });
   res.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
 
 app.get('/callback', async (req, res) => {
-  console.log('Callback hit. Query:', req.query);
+  console.log('Callback query:', req.query);
   const code = req.query.code;
+  const provider = req.query.provider || 'github';
 
   if (!code) {
-    console.log('No code in query params');
-    return res.status(400).send('No code provided. Query was: ' + JSON.stringify(req.query));
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <body>
+      <script>
+        window.opener && window.opener.postMessage(
+          'authorization:${provider}:error:No code provided',
+          '*'
+        );
+        window.close();
+      </script>
+      <p>Error: No code provided</p>
+      </body>
+      </html>
+    `);
   }
 
   try {
@@ -53,7 +67,21 @@ app.get('/callback', async (req, res) => {
     const token = tokenRes.data.access_token;
 
     if (!token) {
-      return res.status(400).send('Failed to get token: ' + JSON.stringify(tokenRes.data));
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+        <body>
+        <script>
+          window.opener && window.opener.postMessage(
+            'authorization:github:error:${JSON.stringify(tokenRes.data)}',
+            '*'
+          );
+          window.close();
+        </script>
+        <p>Error getting token</p>
+        </body>
+        </html>
+      `);
     }
 
     res.send(`
@@ -63,19 +91,20 @@ app.get('/callback', async (req, res) => {
       <script>
         (function() {
           const token = "${token}";
-          const content = JSON.stringify({ token: token, provider: "github" });
+          const message = "authorization:github:success:" + JSON.stringify({
+            token: token,
+            provider: "github"
+          });
           function receiveMessage(e) {
-            window.opener.postMessage(
-              "authorization:github:success:" + content,
-              e.origin
-            );
+            console.log("receiveMessage", e);
+            window.opener.postMessage(message, e.origin);
             window.removeEventListener("message", receiveMessage, false);
           }
           window.addEventListener("message", receiveMessage, false);
           window.opener.postMessage("authorizing:github", "*");
         })();
       </script>
-      <p>Authorization complete. You can close this window.</p>
+      <p>Authorization complete. Closing window...</p>
       </body>
       </html>
     `);
