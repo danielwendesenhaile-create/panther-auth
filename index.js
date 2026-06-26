@@ -25,10 +25,12 @@ app.get('/auth', (req, res) => {
 });
 
 app.get('/callback', async (req, res) => {
+  console.log('Callback hit. Query:', req.query);
   const code = req.query.code;
 
   if (!code) {
-    return res.status(400).send('No code provided');
+    console.log('No code in query params');
+    return res.status(400).send('No code provided. Query was: ' + JSON.stringify(req.query));
   }
 
   try {
@@ -47,16 +49,12 @@ app.get('/callback', async (req, res) => {
       }
     );
 
+    console.log('Token response:', tokenRes.data);
     const token = tokenRes.data.access_token;
 
     if (!token) {
       return res.status(400).send('Failed to get token: ' + JSON.stringify(tokenRes.data));
     }
-
-    const content = {
-      token: token,
-      provider: 'github'
-    };
 
     res.send(`
       <!DOCTYPE html>
@@ -64,20 +62,20 @@ app.get('/callback', async (req, res) => {
       <body>
       <script>
         (function() {
+          const token = "${token}";
+          const content = JSON.stringify({ token: token, provider: "github" });
           function receiveMessage(e) {
-            console.log("receiveMessage %o", e);
             window.opener.postMessage(
-              'authorization:github:success:${JSON.stringify(content).replace(/'/g, "\\'")}',
+              "authorization:github:success:" + content,
               e.origin
             );
             window.removeEventListener("message", receiveMessage, false);
           }
           window.addEventListener("message", receiveMessage, false);
-          console.log("Sending message to opener");
           window.opener.postMessage("authorizing:github", "*");
         })();
       </script>
-      <p>Authorizing... you can close this window.</p>
+      <p>Authorization complete. You can close this window.</p>
       </body>
       </html>
     `);
